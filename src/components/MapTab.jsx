@@ -14,10 +14,13 @@ import {
 import { NEIGHBOR_HOUSES } from '../data/mockData';
 
 export default function MapTab({
+  isConnected = false,
+  isStale = false,
   isPowerOut,
   neighboursDark,
   setNeighboursDark,
-  setIsPowerOut
+  setIsPowerOut,
+  sendDark
 }) {
   const [selectedNode, setSelectedNode] = useState(null);
 
@@ -37,13 +40,23 @@ export default function MapTab({
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full max-w-md mx-auto space-y-4">
       
-      {/* Top Banner with Clear "SIMULATED" label (Spec Requirement) */}
+      {/* Top Banner with Clear Status Badge */}
       <div className="bg-[#1E293B] border-2 border-slate-700/80 rounded-2xl p-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {/* Mandatory Clear Simulated Label */}
-          <span className="px-3 py-1 rounded-full text-xs font-mono font-black tracking-widest uppercase bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse">
-            Simulated
-          </span>
+          {isConnected ? (
+            <span className={`px-3 py-1 rounded-full text-xs font-mono font-black tracking-widest uppercase border flex items-center gap-1.5 ${
+              isStale 
+                ? 'bg-amber-500/20 text-amber-400 border-amber-500/40' 
+                : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40'
+            }`}>
+              <span className={`w-2 h-2 rounded-full animate-pulse ${isStale ? 'bg-amber-400' : 'bg-emerald-400'}`}></span>
+              {isStale ? 'Live ESP32 Mesh • STALE' : 'Live ESP32 Mesh'}
+            </span>
+          ) : (
+            <span className="px-3 py-1 rounded-full text-xs font-mono font-black tracking-widest uppercase bg-amber-500/20 text-amber-400 border border-amber-500/40 animate-pulse">
+              Simulated
+            </span>
+          )}
           <span className="text-sm font-bold text-white">
             DISCOM Locality Grid
           </span>
@@ -53,7 +66,7 @@ export default function MapTab({
         </span>
       </div>
 
-      {/* CORE DISCOM PITCH VISUAL: SIMULATED OUTAGE MAP CANVAS */}
+      {/* CORE DISCOM PITCH VISUAL: OUTAGE MAP CANVAS */}
       <div className="relative flex-1 min-h-[320px] rounded-3xl bg-[#0B1120] border-2 border-slate-700/80 overflow-hidden flex flex-col justify-between p-4 shadow-2xl">
         
         {/* Map Grid Background Texture */}
@@ -139,7 +152,7 @@ export default function MapTab({
             </span>
           </div>
 
-          {/* 20 SIMULATED NEIGHBOR NODES */}
+          {/* 20 NEIGHBOR NODES */}
           {housesWithStatus.map((house) => (
             <button
               key={house.id}
@@ -208,55 +221,98 @@ export default function MapTab({
 
       </div>
 
-      {/* LIVE INTERACTIVE SLIDER (DRIVING THE MAP DOTS) */}
-      <div className="bg-[#1E293B] border-2 border-slate-700/80 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-amber-400" />
-            <label htmlFor="map-sim-slider" className="text-base sm:text-lg font-extrabold text-white">
-              Simulate Neighbours Dark (0-20)
-            </label>
+      {/* BOTTOM CONTROL: LIVE NEIGHBOUR COUNT CONTROL OR DEMO SLIDER */}
+      {isConnected ? (
+        /* Requirement 6: Live Neighbour Count Control (0/3/8/15) calling sendDark(n) */
+        <div className="bg-[#1E293B] border-2 border-slate-700/80 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Radio className="w-5 h-5 text-amber-400 animate-pulse" />
+              <label className="text-base sm:text-lg font-extrabold text-white">
+                ESP32 Neighbour Count (0 / 3 / 8 / 15)
+              </label>
+            </div>
+            <span className="min-w-[42px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono font-black text-xl text-center text-amber-400">
+              {neighboursDark}
+            </span>
           </div>
-          <span className="min-w-[42px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono font-black text-xl text-center text-amber-400">
-            {neighboursDark}
-          </span>
-        </div>
 
-        <input
-          id="map-sim-slider"
-          type="range"
-          min="0"
-          max="20"
-          step="1"
-          value={neighboursDark}
-          onChange={(e) => {
-            const val = parseInt(e.target.value, 10);
-            setNeighboursDark(val);
-            if (!isPowerOut && val > 0) {
-              setIsPowerOut(true);
-            }
-          }}
-          className="w-full h-3 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-          aria-label="Simulate Neighbours Dark slider driving map dots"
-        />
+          <p className="text-xs font-mono text-slate-400">
+            Select node count to publish <code className="text-amber-400 font-bold">"D:&lt;n&gt;"</code> to <code className="text-emerald-400 font-bold">pcc/blackoutai/cmd</code>:
+          </p>
 
-        {/* Legend Indicator strictly constrained to Amber/Red/Green */}
-        <div className="flex items-center justify-between text-xs font-mono text-slate-300 pt-1">
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
-            Online (230V)
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse"></span>
-            Simulated Outage
-          </span>
-          <span className="flex items-center gap-1.5 text-amber-400 font-bold">
-            ⚡ DISCOM Mesh
-          </span>
+          <div className="grid grid-cols-4 gap-2 pt-1">
+            {[0, 3, 8, 15].map((n) => {
+              const isSelected = neighboursDark === n;
+              return (
+                <button
+                  key={n}
+                  onClick={() => sendDark && sendDark(n)}
+                  className={`py-2.5 px-1 text-sm font-mono font-black rounded-xl border transition active:scale-95 text-center flex flex-col items-center justify-center gap-0.5 ${
+                    isSelected
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-950/60 ring-2 ring-amber-400/50'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-white'
+                  }`}
+                  title={`Publish D:${n} to pcc/blackoutai/cmd`}
+                >
+                  <span className="text-lg font-black">{n}</span>
+                  <span className="text-[10px] font-bold opacity-80">
+                    {n === 0 ? 'MCB (0)' : n === 3 ? 'Few (3)' : n === 8 ? 'Grid (8)' : 'Wide (15)'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Fallback demo slider when disconnected */
+        <div className="bg-[#1E293B] border-2 border-slate-700/80 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-5 h-5 text-amber-400" />
+              <label htmlFor="map-sim-slider" className="text-base sm:text-lg font-extrabold text-white">
+                Simulate Neighbours Dark (0-20)
+              </label>
+            </div>
+            <span className="min-w-[42px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono font-black text-xl text-center text-amber-400">
+              {neighboursDark}
+            </span>
+          </div>
+
+          <input
+            id="map-sim-slider"
+            type="range"
+            min="0"
+            max="20"
+            step="1"
+            value={neighboursDark}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              setNeighboursDark(val);
+              if (!isPowerOut && val > 0) {
+                setIsPowerOut(true);
+              }
+            }}
+            className="w-full h-3 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+            aria-label="Simulate Neighbours Dark slider driving map dots"
+          />
+
+          <div className="flex items-center justify-between text-xs font-mono text-slate-300 pt-1">
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+              Online (230V)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-3 rounded-full bg-red-500 inline-block animate-pulse"></span>
+              Simulated Outage
+            </span>
+            <span className="flex items-center gap-1.5 text-amber-400 font-bold">
+              ⚡ DISCOM Mesh
+            </span>
+          </div>
+        </div>
+      )}
 
     </div>
   );
 }
-

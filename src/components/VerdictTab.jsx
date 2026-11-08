@@ -14,20 +14,25 @@ import {
 } from 'lucide-react';
 
 export default function VerdictTab({
+  isConnected = false,
+  isStale = false,
   isPowerOut,
   setIsPowerOut,
   neighboursDark,
   setNeighboursDark,
+  crowdVerdict,
+  supercapSeconds = 0,
+  sendDark,
   onOpenSafeSteps,
   onOpenTorch
 }) {
-  // Determine verdict mode
-  // Neutral state: POWER OK
-  // Yellow state: HOUSE FAULT: only you. Check MCB. (Power out & 0 neighbours dark)
-  // Red state: GRID FAULT: {count} nearby also dark. DISCOM notified. (Power out & >0 neighbours dark)
-  const isNeutral = !isPowerOut;
-  const isHouseFault = isPowerOut && neighboursDark === 0;
-  const isGridFault = isPowerOut && neighboursDark > 0;
+  // Determine verdict mode:
+  // Neutral state: POWER OK (mains OK or crowd == "NONE")
+  // Yellow state: HOUSE FAULT: only you. Check MCB. (Power out & crowd == "HOUSE FAULT" or 0 neighbours dark)
+  // Red state: GRID FAULT: {count} nearby also dark. DISCOM notified. (Power out & crowd == "GRID FAULT" or >0 neighbours dark)
+  const isNeutral = !isPowerOut || crowdVerdict === 'NONE';
+  const isHouseFault = isPowerOut && (crowdVerdict ? crowdVerdict === 'HOUSE FAULT' : neighboursDark === 0);
+  const isGridFault = isPowerOut && (crowdVerdict ? crowdVerdict === 'GRID FAULT' : neighboursDark > 0);
 
   // Background and border style matching strict OLED + Amber/Red/Green constraints
   const cardTheme = isNeutral
@@ -64,9 +69,9 @@ export default function VerdictTab({
       };
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 w-full max-w-md mx-auto space-y-4">
+    <div className="flex flex-col flex-1 min-h-0 w-full max-w-md mx-auto space-y-3">
       
-      {/* Pitch Quick-Controls & Master Outage Switch */}
+      {/* Mains Status & Quick Controls */}
       <div className="bg-[#1E293B]/80 border border-slate-700/80 rounded-2xl p-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className={`w-3 h-3 rounded-full ${isPowerOut ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
@@ -76,34 +81,71 @@ export default function VerdictTab({
         </div>
 
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => {
-              if (!isPowerOut) {
-                setIsPowerOut(true);
-                if (neighboursDark === 0) setNeighboursDark(14);
-              } else {
-                setIsPowerOut(false);
-              }
-            }}
-            className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-mono font-black uppercase tracking-wider transition active:scale-95 border flex items-center gap-1.5 ${
+          {isConnected ? (
+            /* Live status indicator when ESP32 connected (no fake manual toggling) */
+            <span className={`min-h-[40px] px-3 py-1.5 rounded-xl text-xs font-mono font-black uppercase tracking-wider border flex items-center gap-1.5 ${
               isPowerOut
-                ? 'bg-red-950/80 text-red-300 border-red-500/50 hover:bg-red-900'
-                : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50 hover:bg-emerald-900'
-            }`}
-          >
-            {isPowerOut ? <ZapOff className="w-4 h-4 text-red-400" /> : <Zap className="w-4 h-4 text-emerald-400" />}
-            {isPowerOut ? 'Power CUT' : 'Power OK'}
-          </button>
+                ? 'bg-red-950/80 text-red-300 border-red-500/50'
+                : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
+            }`}>
+              {isPowerOut ? <ZapOff className="w-3.5 h-3.5 text-red-400" /> : <Zap className="w-3.5 h-3.5 text-emerald-400" />}
+              <span>{isPowerOut ? 'Mains: LOST' : 'Mains: OK'}</span>
+              {isStale && (
+                <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-500/40 animate-pulse">
+                  STALE
+                </span>
+              )}
+            </span>
+          ) : (
+            /* Demo Toggle Button when disconnected */
+            <button
+              onClick={() => {
+                if (!isPowerOut) {
+                  setIsPowerOut(true);
+                  if (neighboursDark === 0) setNeighboursDark(14);
+                } else {
+                  setIsPowerOut(false);
+                }
+              }}
+              className={`min-h-[44px] px-3.5 py-1.5 rounded-xl text-xs font-mono font-black uppercase tracking-wider transition active:scale-95 border flex items-center gap-1.5 ${
+                isPowerOut
+                  ? 'bg-red-950/80 text-red-300 border-red-500/50 hover:bg-red-900'
+                  : 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50 hover:bg-emerald-900'
+              }`}
+            >
+              {isPowerOut ? <ZapOff className="w-4 h-4 text-red-400" /> : <Zap className="w-4 h-4 text-emerald-400" />}
+              {isPowerOut ? 'Power CUT' : 'Power OK'}
+            </button>
+          )}
 
           <button
             onClick={onOpenTorch}
-            className="min-h-[44px] min-w-[44px] p-2 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-600 rounded-xl transition flex items-center justify-center active:scale-95"
+            className="min-h-[40px] min-w-[40px] p-2 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-600 rounded-xl transition flex items-center justify-center active:scale-95"
             title="Emergency Screen Torch"
             aria-label="Torch mode"
           >
-            <Flashlight className="w-5 h-5" />
+            <Flashlight className="w-4 h-4" />
           </button>
         </div>
+      </div>
+
+      {/* SUPERCAP COUNTDOWN RUNTIME STRIP */}
+      <div className="bg-[#1E293B]/80 border border-slate-700/80 rounded-2xl p-2.5 px-3 flex items-center justify-between text-xs font-mono">
+        <div className="flex items-center gap-2">
+          <Zap className={`w-3.5 h-3.5 ${isPowerOut && supercapSeconds > 0 ? 'text-amber-400 animate-pulse' : 'text-slate-400'}`} />
+          <span className="text-slate-300 font-bold uppercase tracking-wider">Supercap Backup:</span>
+        </div>
+        <span className={`font-black text-xs sm:text-sm ${
+          isPowerOut && supercapSeconds > 0
+            ? 'text-amber-400 animate-pulse'
+            : isPowerOut && supercapSeconds === 0
+            ? 'text-red-400'
+            : 'text-emerald-400'
+        }`}>
+          {isPowerOut 
+            ? (supercapSeconds > 0 ? `${supercapSeconds}s countdown` : '0s (Exhausted)') 
+            : '0s (Mains OK)'}
+        </span>
       </div>
 
       {/* FULL-SCREEN IMMERSIVE VERDICT COLOR CARD */}
@@ -237,103 +279,145 @@ export default function VerdictTab({
         {/* Arm's Length Quick Tip Bar */}
         <div className="pt-4 border-t border-slate-800/80 mt-4 flex items-center justify-between text-xs sm:text-sm font-semibold text-slate-400">
           <span>OLED Low-Glare Mode Active</span>
-          <span className="font-mono text-slate-500">v1.0.4 Hackathon Build</span>
+          <span className="font-mono text-slate-500">v1.0.4 LIVE via MQTT</span>
         </div>
       </div>
 
-      {/* LIVE INTERACTIVE DEMO SLIDER (BOTTOM) */}
-      <div className="bg-[#1E293B] border-2 border-slate-700/80 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-amber-400" />
-            <label htmlFor="sim-neighbours" className="text-base sm:text-lg font-extrabold text-white">
-              Simulate Neighbours Dark (0-20)
-            </label>
+      {/* NEIGHBOUR-COUNT CONTROL & STREAM PANEL */}
+      {isConnected ? (
+        /* Requirement 6: Neighbour-count control (0/3/8/15) calling sendDark(n) */
+        <div className="bg-[#1E293B] border-2 border-slate-700/80 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Radio className="w-5 h-5 text-amber-400 animate-pulse" />
+              <label className="text-base sm:text-lg font-extrabold text-white">
+                Neighbour Count Control
+              </label>
+            </div>
+            <span className="min-w-[42px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono font-black text-xl text-center text-amber-400">
+              {neighboursDark}
+            </span>
           </div>
-          <span className="min-w-[42px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono font-black text-xl text-center text-amber-400">
-            {neighboursDark}
-          </span>
+
+          <p className="text-xs font-mono text-slate-400">
+            Publishes <code className="text-amber-400 font-bold">"D:&lt;n&gt;"</code> to <code className="text-emerald-400 font-bold">pcc/blackoutai/cmd</code>:
+          </p>
+
+          {/* 4 preset buttons: 0, 3, 8, 15 */}
+          <div className="grid grid-cols-4 gap-2 pt-1">
+            {[0, 3, 8, 15].map((n) => {
+              const isSelected = neighboursDark === n;
+              return (
+                <button
+                  key={n}
+                  onClick={() => sendDark && sendDark(n)}
+                  className={`py-2.5 px-1 text-sm font-mono font-black rounded-xl border transition active:scale-95 text-center flex flex-col items-center justify-center gap-0.5 ${
+                    isSelected
+                      ? 'bg-amber-500 text-black border-amber-400 shadow-lg shadow-amber-950/60 ring-2 ring-amber-400/50'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500 hover:text-white'
+                  }`}
+                  title={`Publish D:${n} to pcc/blackoutai/cmd`}
+                >
+                  <span className="text-lg font-black">{n}</span>
+                  <span className="text-[10px] font-bold opacity-80">
+                    {n === 0 ? 'MCB (0)' : n === 3 ? 'Few (3)' : n === 8 ? 'Grid (8)' : 'Wide (15)'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
+      ) : (
+        /* Demo Slider when disconnected (allows demo before hardware connected) */
+        <div className="bg-[#1E293B] border-2 border-slate-700/80 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Sliders className="w-5 h-5 text-amber-400" />
+              <label htmlFor="sim-neighbours" className="text-base sm:text-lg font-extrabold text-white">
+                Simulate Neighbours Dark (0-20)
+              </label>
+            </div>
+            <span className="min-w-[42px] px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 font-mono font-black text-xl text-center text-amber-400">
+              {neighboursDark}
+            </span>
+          </div>
 
-        {/* Range Slider */}
-        <input
-          id="sim-neighbours"
-          type="range"
-          min="0"
-          max="20"
-          step="1"
-          value={neighboursDark}
-          onChange={(e) => {
-            const val = parseInt(e.target.value, 10);
-            setNeighboursDark(val);
-            if (!isPowerOut && val > 0) {
-              setIsPowerOut(true);
-            }
-          }}
-          className="w-full h-3 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-          aria-label="Simulate Neighbours Dark slider from 0 to 20"
-        />
+          <input
+            id="sim-neighbours"
+            type="range"
+            min="0"
+            max="20"
+            step="1"
+            value={neighboursDark}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10);
+              setNeighboursDark(val);
+              if (!isPowerOut && val > 0) {
+                setIsPowerOut(true);
+              }
+            }}
+            className="w-full h-3 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+            aria-label="Simulate Neighbours Dark slider from 0 to 20"
+          />
 
-        {/* Legend / Range Labels */}
-        <div className="flex justify-between text-xs font-mono font-bold text-slate-400 pt-1">
-          <span className={neighboursDark === 0 ? 'text-amber-400 font-black' : ''}>
-            0 (Only You / MCB)
-          </span>
-          <span className={neighboursDark === 14 ? 'text-red-400 font-black' : ''}>
-            14 (Pitch Target)
-          </span>
-          <span className={neighboursDark === 20 ? 'text-red-400 font-black' : ''}>
-            20 (Full Sector Out)
-          </span>
+          <div className="flex justify-between text-xs font-mono font-bold text-slate-400 pt-1">
+            <span className={neighboursDark === 0 ? 'text-amber-400 font-black' : ''}>
+              0 (Only You / MCB)
+            </span>
+            <span className={neighboursDark === 14 ? 'text-red-400 font-black' : ''}>
+              14 (Pitch Target)
+            </span>
+            <span className={neighboursDark === 20 ? 'text-red-400 font-black' : ''}>
+              20 (Full Sector Out)
+            </span>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={() => {
+                setIsPowerOut(false);
+                setNeighboursDark(0);
+              }}
+              className={`flex-1 py-2 px-1 text-xs font-mono font-extrabold rounded-xl border transition text-center ${
+                !isPowerOut 
+                  ? 'bg-emerald-950 text-emerald-300 border-emerald-500' 
+                  : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+              }`}
+            >
+              Power OK
+            </button>
+            
+            <button
+              onClick={() => {
+                setIsPowerOut(true);
+                setNeighboursDark(0);
+              }}
+              className={`flex-1 py-2 px-1 text-xs font-mono font-extrabold rounded-xl border transition text-center ${
+                isPowerOut && neighboursDark === 0
+                  ? 'bg-amber-950 text-amber-300 border-amber-500' 
+                  : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+              }`}
+            >
+              House (0 Dark)
+            </button>
+
+            <button
+              onClick={() => {
+                setIsPowerOut(true);
+                setNeighboursDark(14);
+              }}
+              className={`flex-1 py-2 px-1 text-xs font-mono font-extrabold rounded-xl border transition text-center ${
+                isPowerOut && neighboursDark === 14
+                  ? 'bg-red-950 text-red-300 border-red-500' 
+                  : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+              }`}
+            >
+              Grid (14 Dark)
+            </button>
+          </div>
         </div>
-
-        {/* Quick Demo Preset Pills for seamless pitch */}
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={() => {
-              setIsPowerOut(false);
-              setNeighboursDark(0);
-            }}
-            className={`flex-1 py-2 px-1 text-xs font-mono font-extrabold rounded-xl border transition text-center ${
-              !isPowerOut 
-                ? 'bg-emerald-950 text-emerald-300 border-emerald-500' 
-                : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
-            }`}
-          >
-            Power OK
-          </button>
-          
-          <button
-            onClick={() => {
-              setIsPowerOut(true);
-              setNeighboursDark(0);
-            }}
-            className={`flex-1 py-2 px-1 text-xs font-mono font-extrabold rounded-xl border transition text-center ${
-              isPowerOut && neighboursDark === 0
-                ? 'bg-amber-950 text-amber-300 border-amber-500' 
-                : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
-            }`}
-          >
-            House (0 Dark)
-          </button>
-
-          <button
-            onClick={() => {
-              setIsPowerOut(true);
-              setNeighboursDark(14);
-            }}
-            className={`flex-1 py-2 px-1 text-xs font-mono font-extrabold rounded-xl border transition text-center ${
-              isPowerOut && neighboursDark === 14
-                ? 'bg-red-950 text-red-300 border-red-500' 
-                : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
-            }`}
-          >
-            Grid (14 Dark)
-          </button>
-        </div>
-      </div>
+      )}
 
     </div>
   );
 }
-
